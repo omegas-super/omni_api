@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.services.ai_agent import ai_health, answer_question
 from app.services.rag import search_documents, upsert_document
-from app.services.searxng import discover_instances, search_web, suggest_appliance_profile
+from app.services.searxng import discover_instances, search_web, suggest_appliance_profile, suggest_sensor_profile
 from app.services.voice_ai import synthesize_reply
 
 router = APIRouter(prefix="/v1/ai", tags=["ai"])
@@ -45,6 +45,11 @@ class WebSearchRequest(BaseModel):
 class ApplianceProfileRequest(BaseModel):
     query: str = Field(min_length=1)
     applianceType: str = "motor"
+    crawlFirstResult: bool = True
+
+
+class SensorProfileRequest(BaseModel):
+    query: str = Field(min_length=1)
     crawlFirstResult: bool = True
 
 
@@ -109,3 +114,8 @@ def web_search(body: WebSearchRequest):
 @router.post("/appliance-profile")
 def appliance_profile(body: ApplianceProfileRequest):
     return suggest_appliance_profile(body.query, body.applianceType, body.crawlFirstResult)
+
+
+@router.post("/sensor-profile")
+def sensor_profile(body: SensorProfileRequest):
+    return suggest_sensor_profile(body.query, body.crawlFirstResult)

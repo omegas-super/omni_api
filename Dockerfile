@@ -31,7 +31,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SERVICE_URL_S3=https://s3.taxsomega.com \
     SERVICE_URL_ADMIN=https://s3-admin.taxsomega.com \
     SERVICE_FQDN_S3=s3.taxsomega.com \
-    SERVICE_FQDN_ADMIN=s3-admin.taxsomega.com
+    SERVICE_FQDN_ADMIN=s3-admin.taxsomega.com \
+    AI_ENABLE_WEB_SEARCH=true \
+    SEARXNG_INSTANCES=https://searxng-x553qn4uned8yvitp07nr9j1.taxsomega.com \
+    SEARXNG_TIMEOUT_SECONDS=10 \
+    SEARXNG_MAX_INSTANCES=1
 
 WORKDIR /app
 

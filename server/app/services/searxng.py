@@ -305,3 +305,125 @@ def suggest_appliance_profile(query: str, appliance_type: str = "motor", crawl_f
         "crawled": crawled,
         "sources": sources,
     }
+
+
+def _sensor_profile_from_text(query: str, search_result: dict[str, Any], crawled: dict[str, Any] | None = None) -> dict[str, Any]:
+    snippets = " ".join(f"{item.get('title', '')} {item.get('content', '')}" for item in search_result.get("items", [])[:6])
+    text = re.sub(r"\s+", " ", f"{query} {snippets} {(crawled or {}).get('text') or ''}"[:9000])
+    lower = text.lower()
+
+    current_model = query.strip()[:90] or "Analog current sensor"
+    current_zero_v: float | None = None
+    current_v_per_a: float | None = None
+    current_notes = ""
+
+    if re.search(r"\bv\s*/\s*i\b|\bv-i\b|\bvi converter\b|current transducer|current converter", lower):
+        output_voltage = _first_reasonable(_numbers(r"0\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*v", lower, 0.1, 10))
+        current_range = _first_reasonable(_numbers(r"0\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*a", lower, 0.1, 500))
+        current_zero_v = 0.0
+        current_v_per_a = round(output_voltage / current_range, 6) if output_voltage and current_range else 1.0
+        current_model = "Analog V/I converter"
+        current_notes = "Unipolar V/I converter default; enter measured current during setup or set exact V/A from the converter datasheet."
+    elif "acs712" in lower:
+        current_zero_v = 2.5
+        current_notes = "ACS712 is center-biased; keep the ESP32 ADC input below 3.3V at peak current."
+        if re.search(r"\b5\s*a\b|5a", lower):
+            current_v_per_a = 0.185
+            current_model = "ACS712 5A"
+        elif re.search(r"\b20\s*a\b|20a", lower):
+            current_v_per_a = 0.100
+            current_model = "ACS712 20A"
+        elif re.search(r"\b30\s*a\b|30a", lower):
+            current_v_per_a = 0.066
+            current_model = "ACS712 30A"
+        else:
+            current_v_per_a = 0.066
+            current_model = "ACS712"
+    elif "acs758" in lower:
+        current_zero_v = 2.5
+        current_notes = "ACS758 is center-biased; choose the exact range from the sensor marking when possible."
+        if re.search(r"\b50\s*a\b|50a", lower):
+            current_v_per_a = 0.040
+            current_model = "ACS758 50A"
+        elif re.search(r"\b100\s*a\b|100a", lower):
+            current_v_per_a = 0.020
+            current_model = "ACS758 100A"
+        elif re.search(r"\b200\s*a\b|200a", lower):
+            current_v_per_a = 0.010
+            current_model = "ACS758 200A"
+        else:
+            current_v_per_a = 0.040
+            current_model = "ACS758"
+    elif "ina219" in lower or "ina226" in lower:
+        current_model = "INA219/INA226 digital current sensor"
+        current_notes = "This firmware expects analog current on GPIO 35; digital I2C current sensors need firmware driver changes."
+
+    voltage_model = "Analog voltage input"
+    voltage_scale: float | None = 1.0
+    voltage_notes = "Confirm with a multimeter; measured voltage calibration overrides this scale."
+    divider_match = re.search(r"(\d+(?:\.\d+)?)\s*k(?:ohm|\u03a9|\s)?\D{0,24}(\d+(?:\.\d+)?)\s*k(?:ohm|\u03a9)?", lower)
+    if divider_match and "divider" in lower:
+        high = float(divider_match.group(1))
+        low = float(divider_match.group(2))
+        if high > 0 and low > 0:
+            voltage_scale = round((high + low) / low, 4)
+            voltage_model = f"Voltage divider {high:g}k/{low:g}k"
+    elif re.search(r"0\s*[-to]+\s*25\s*v|25\s*v\s+sensor", lower):
+        voltage_scale = 5.0
+        voltage_model = "0-25V analog voltage module"
+    elif re.search(r"0\s*[-to]+\s*30\s*v|30\s*v\s+sensor", lower):
+        voltage_scale = 6.0
+        voltage_model = "0-30V analog voltage module"
+    elif re.search(r"0\s*[-to]+\s*50\s*v|50\s*v\s+sensor", lower):
+        voltage_scale = 10.0
+        voltage_model = "0-50V analog voltage module"
+
+    hall_model = "W41FC Hall sensor" if "w41fc" in lower else ("Hall effect pulse sensor" if "hall" in lower else "Hall effect pulse sensor")
+    hall_pulses = _first_reasonable(_numbers(r"(\d+(?:\.\d+)?)\s*(?:pulse|pulses)\s*(?:per|/)\s*(?:rev|revolution)", lower, 0.1, 100)) or 1.0
+    temperature_model = "DS18B20" if "ds18b20" in lower else "Not installed"
+    vibration_model = "MPU6050" if "mpu6050" in lower or not lower.strip() else "Vibration sensor"
+
+    confidence = 0.2
+    confidence += 0.25 if current_v_per_a else 0
+    confidence += 0.2 if voltage_scale else 0
+    confidence += 0.15 if hall_pulses else 0
+    confidence += 0.1 if search_result.get("items") else 0
+    confidence += 0.1 if crawled and crawled.get("ok") else 0
+
+    return {
+        "currentSensorModel": current_model,
+        "currentSensorZeroV": current_zero_v,
+        "currentSensorVPerA": current_v_per_a,
+        "currentSensorNotes": current_notes,
+        "voltageSensorModel": voltage_model,
+        "voltageScale": voltage_scale,
+        "voltageSensorNotes": voltage_notes,
+        "hallSensorModel": hall_model,
+        "hallPulsesPerRev": hall_pulses,
+        "temperatureSensorModel": temperature_model,
+        "vibrationSensorModel": vibration_model,
+        "confidence": round(min(confidence, 0.95), 2),
+        "sourceCount": len(search_result.get("items") or []),
+    }
+
+
+def suggest_sensor_profile(query: str, crawl_first_result: bool = True) -> dict[str, Any]:
+    search_query = f"{query} sensor datasheet sensitivity voltage output pulses per revolution"
+    search_result = search_web(search_query, limit=6)
+    crawled = None
+    if crawl_first_result and search_result.get("items"):
+        crawled = crawl_page(search_result["items"][0]["url"])
+    profile = _sensor_profile_from_text(query, search_result, crawled)
+    sources = [{"title": item.get("title"), "url": item.get("url"), "content": item.get("content")} for item in search_result.get("items", [])[:5]]
+    assistant_text = ""
+    if search_result.get("items"):
+        try:
+            assistant_text = chat_completion(
+                [
+                    {"role": "system", "content": "Extract an Omni9 ESP32 sensor setup profile. Return one short sentence with current sensitivity, voltage scale, Hall pulses, and any uncertainty. Do not invent missing values."},
+                    {"role": "user", "content": compact_json({"query": query, "profile": profile, "sources": sources}, max_chars=12000)},
+                ]
+            ).strip()
+        except AiGatewayError:
+            assistant_text = ""
+    return {"query": query, "profile": profile, "assistantText": assistant_text, "search": search_result, "crawled": crawled, "sources": sources}

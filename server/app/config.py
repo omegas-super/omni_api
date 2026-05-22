@@ -51,7 +51,7 @@ def _url_from_value(value: str) -> str:
 class Settings(BaseSettings):
     app_env: str = "development"
     app_name: str = "Omni9 API"
-    app_cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost,https://localhost,capacitor://localhost,ionic://localhost"
+    app_cors_origins: str = "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174,http://localhost,https://localhost,capacitor://localhost,ionic://localhost"
     default_site_id: str = "main_site"
     jwt_secret: str = "development-only"
 
